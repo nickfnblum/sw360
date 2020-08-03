@@ -130,6 +130,8 @@ public class PortalConstants {
     public static final String CLEARING_REQUEST_COMMENT = "clearingRequestComment";
     public static final String RE_OPEN_REQUEST = "reOpenRequest";
     public static final String LOAD_PROJECT_INFO = "loadProjectInfo";
+    public static final String NEW_RELEASE_COUNT = "newReleaseCount";
+    public static final String LINKED_RELEASE_COUNT = "linkedReleaseCount";
 
 
     //! Specialized keys for components

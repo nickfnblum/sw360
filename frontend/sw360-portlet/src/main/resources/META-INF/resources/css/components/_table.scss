@@ -78,6 +78,10 @@ table.table-lowspace {
 	}
 }
 
+table.table-borderless td, .table-borderless th {
+    border: none;
+}
+
 table  {
 	td {
         .form-group {

@@ -19,6 +19,11 @@ public class BackendUtils {
     protected static final Properties loadedProperties;
     public static final Boolean MAINLINE_STATE_ENABLED_FOR_USER;
 
+
+    // HTML tags
+    public static final String LIST_ITEM = "<li>";
+    public static final String LIST_ITEM_CLOSE = "</li>";
+    
     static {
         loadedProperties = CommonUtils.loadProperties(BackendUtils.class, PROPERTIES_FILE_PATH);
         MAINLINE_STATE_ENABLED_FOR_USER = Boolean.parseBoolean(loadedProperties.getProperty("mainline.state.enabled.for.user", "false"));

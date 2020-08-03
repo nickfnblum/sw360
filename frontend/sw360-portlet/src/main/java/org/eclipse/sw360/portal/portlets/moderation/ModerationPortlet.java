@@ -30,6 +30,7 @@ import org.eclipse.sw360.datahandler.thrift.attachments.Attachment;
 import org.eclipse.sw360.datahandler.thrift.components.Component;
 import org.eclipse.sw360.datahandler.thrift.components.ComponentService;
 import org.eclipse.sw360.datahandler.thrift.components.Release;
+import org.eclipse.sw360.datahandler.thrift.components.ReleaseClearingStateSummary;
 import org.eclipse.sw360.datahandler.thrift.licenseinfo.LicenseInfoService;
 import org.eclipse.sw360.datahandler.thrift.licenses.License;
 import org.eclipse.sw360.datahandler.thrift.licenses.LicenseService;
@@ -282,6 +283,14 @@ public class ModerationPortlet extends FossologyAwarePortlet {
                 Project project = projectClient.getProjectById(clearingRequest.getProjectId(), UserCacheHolder.getUserFromRequest(request));
                 request.setAttribute(PROJECT, project);
                 request.setAttribute(WRITE_ACCESS_USER, makePermission(project, user).isActionAllowed(RequestedAction.WRITE));
+                List<Project> projects = getWithFilledClearingStateSummary(projectClient, Lists.newArrayList(project), user);
+                Integer newReleaseCount = 0;
+                Project projWithCsSummary = projects.get(0);
+                if (null != projWithCsSummary && null != projWithCsSummary.getReleaseClearingStateSummary()) {
+                    ReleaseClearingStateSummary summary = projWithCsSummary.getReleaseClearingStateSummary();
+                    newReleaseCount = summary.getNewRelease();
+                }
+                request.setAttribute(NEW_RELEASE_COUNT, newReleaseCount);
             }
             addClearingBreadcrumb(request, response, clearingId);
         } catch (TException e) {
@@ -426,8 +435,7 @@ public class ModerationPortlet extends FossologyAwarePortlet {
         baseUrl.setParameter(PAGENAME, PAGENAME_EDIT_CLEARING_REQUEST);
         baseUrl.setParameter(CLEARING_REQUEST_ID, Id);
 
-        ResourceBundle resourceBundle = ResourceBundleUtil.getBundle("content.Language", request.getLocale(), getClass());
-        addBreadcrumbEntry(request, LanguageUtil.get(resourceBundle,"clearing.request"), baseUrl);
+        addBreadcrumbEntry(request, Id, baseUrl);
     }
 
     public void renderStandardView(RenderRequest request, RenderResponse response) throws IOException, PortletException {

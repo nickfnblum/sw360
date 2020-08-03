@@ -73,7 +73,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class DatabaseHandlerUtil {
     private static final Logger log = Logger.getLogger(DatabaseHandlerUtil.class);
-    private static final String SEPARATOR = " -> ";
+    public static final String SEPARATOR = " -> ";
     private static ChangeLogsRepository changeLogRepository = getChangeLogsRepository();
     private static ObjectMapper mapper = initAndGetObjectMapper();
 

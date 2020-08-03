@@ -28,6 +28,8 @@
 <jsp:useBean id="writeAccessUser" type="java.lang.Boolean" scope="request"/>
 <jsp:useBean id="isClearingExpert" type="java.lang.Boolean" scope="request"/>
 <jsp:useBean id="printDate" class="java.util.Date"/>
+<jsp:useBean id="newReleaseCount" class="java.lang.Integer" scope="request" />
+<%-- <jsp:useBean id="linkedReleaseCount" class="java.lang.String" scope="request" /> --%>
 
 <core_rt:if test="${not empty clearingRequest.id}">
 
@@ -59,6 +61,7 @@
 <core_rt:set var="isClearingTeam" value='${clearingRequest.clearingTeam eq user.emailAddress or (isClearingExpert and writeAccessUser)}'/>
 <core_rt:set var="isClosedOrRejected" value="${clearingRequest.clearingState eq 'CLOSED' or clearingRequest.clearingState eq 'REJECTED' or empty clearingRequest.projectId}"/>
 <core_rt:set var="isEditableForClearingTeam" value="${isClearingTeam and not isClosedOrRejected and pageName eq 'editClearingRequest'}"/>
+<core_rt:set var="isProgressBarVisible" value="${isProjectPresent and project.releaseIdToUsageSize > 0}"/>
 
 <div class="container" id="clearing-request">
 <div class="row portlet-toolbar">
@@ -69,7 +72,7 @@
                     <button type="button" class="btn btn-primary" onclick="window.location.href='<%=editlURL%>' + window.location.hash"><liferay-ui:message key="edit.request" /></button>
                 </div>
             </core_rt:if>
-            <core_rt:if test="${isProjectPresent and isClosedOrRejected and isClearingTeam}">
+            <core_rt:if test="${isProjectPresent and isClosedOrRejected and isClearingTeam and isRequestingUser}">
                 <div class="btn-group" role="group">
                     <button type="button" id="reOpenRequest" class="btn btn-primary"><liferay-ui:message key="reopen.request" /></button>
                 </div>
@@ -189,12 +192,12 @@
                                             </tr>
                                             <tr>
                                                 <td>
-                                                    <label class="form-group <core_rt:if test='${isEditableForClearingTeam}'> mandatory</core_rt:if>"><liferay-ui:message key="agreed.clearing.date" />:</label>
+                                                    <label class="form-group <core_rt:if test='${isEditableForClearingTeam}'> </core_rt:if>"><liferay-ui:message key="agreed.clearing.date" />:</label>
                                                 </td>
                                                 <td>
                                                 <core_rt:choose>
                                                     <core_rt:when test="${isEditableForClearingTeam}">
-                                                        <input class="form-control datepicker" required
+                                                        <input class="form-control datepicker"
                                                             name="<portlet:namespace/><%=ClearingRequest._Fields.AGREED_CLEARING_DATE%>" type="text" pattern="\d{4}-\d{2}-\d{2}"
                                                             value="<sw360:out value="${clearingRequest.agreedClearingDate}"/>" placeholder="<liferay-ui:message key='agreed.clearing.date.yyyy.mm.dd' />" />
                                                     </core_rt:when>
@@ -226,10 +229,27 @@
                                                     </core_rt:if>
                                                 </td>
                                             </tr>
+                                            <core_rt:if test="${isProgressBarVisible}">
+                                            <tr>
+                                                <td>
+                                                    <label class="form-group">
+                                                        <liferay-ui:message key="progress" />:
+                                                    </label>
+                                                </td>
+                                                <td>
+                                                    <div class="progress h-100">
+                                                        <div id="crProgress" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+                                                            <span class="text-dark font-weight-bold"></span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            </core_rt:if>
                                         </tbody>
                                     </table>
                                 </div>
                             </div>
+                            <!-- and (clearingRequest.clearingSprogresstate eq 'IN_PROGRESS' or clearingRequest.clearingState eq 'ON_HOLD')} -->
                         </div>
                     </div>
                 </form>
@@ -280,7 +300,7 @@
                                                 <div class="m-auto row">
                                                     <div class="col-0 user-icon user-icon-info text-uppercase"><span>${iconText}</span></div>
                                                     <div class="col-11">
-                                                        <div class="comment-text"><core_rt:if test="${comment.autoGenerated}"> <liferay-ui:message key="this.is.auto.generated.comment" /></core_rt:if><sw360:out value="${comment.text}"/></div>
+                                                        <div class="comment-text"><core_rt:if test="${comment.autoGenerated}"> <liferay-ui:message key="this.is.auto.generated.comment" /></core_rt:if><sw360:out value="${comment.text}" stripNewlines="false"/></div>
                                                             <footer class="blockquote-footer"><liferay-ui:message key="by" /> <cite><b><sw360:DisplayUserEmail email="${by}"/></b></cite> <liferay-ui:message key="on" /> <cite>
                                                                 <b><fmt:formatDate value="${printDate}" pattern="yyyy-MM-dd HH:mm"/></b></cite>
                                                             </footer>
@@ -329,9 +349,58 @@ require(['jquery', 'modules/dialog', 'modules/validation', 'modules/button', 'br
         }
         $("#clearingCommentsTable tbody tr").first().hide();
         $("#clearingCommentsTable tbody tr").not(":first").each(function(index) {
-            let id = $(this).find("td").first().text().toLowerCase();
+            let id = $(this).find("td").first().text().trim().toLowerCase();
             $(this).toggle(id.indexOf(value) !== -1);
         });
+    });
+
+    function unEscapeHtmlTextFormatting(input) {
+        return input.replace(/&lt;(b|i|u|s|ul|li)\s*&gt;/gi, "<$1>").replace(/&lt;\/(b|i|u|s|ul|li)\s*&gt;/gi, "</$1>")
+    }
+
+    $(document).ready(function() {
+        if ("${isProgressBarVisible}" == "true") {
+        let totalRelease = "${project.releaseIdToUsageSize}",
+            newReleaseCount =  "${newReleaseCount}",
+            $progressBar = $("#crProgress"),
+            $td = $("#crProgress").closest("tr").find("td:eq(1)");
+
+            if (newReleaseCount === totalRelease) {
+                let progressText = "(0/"+totalRelease+") "+"<liferay-ui:message key="none.of.the.directly.linked.releases.are.cleared" />";
+                $progressBar.find('span').text("0%");
+                $progressBar.attr("aria-valuenow", "0");
+                $progressBar.css("width", "0%");
+                $td.attr("title", progressText);
+            } else if (newReleaseCount == 0){
+                let progressText = "("+totalRelease+"/"+totalRelease+") "+"<liferay-ui:message key="all.of.the.directly.linked.releases.are.cleared" />";
+                $progressBar.find('span').text("100%");
+                $progressBar.attr("aria-valuenow", "100");
+                $progressBar.css("width", "100%");
+                $td.attr("title", progressText);
+            } else {
+                let progressPercentage = ((newReleaseCount / totalRelease) * 100).toFixed(0),
+                    pendingRelease = totalRelease - newReleaseCount,
+                    progressText = "("+ pendingRelease +"/"+totalRelease+") "+"<liferay-ui:message key="directly.linked.releases.are.cleared" />";
+                $progressBar.find("span").text(progressPercentage + "%");
+                $progressBar.attr("aria-valuenow", progressPercentage);
+                $progressBar.css("width", progressPercentage + "%");
+                $td.attr("title", progressText);
+            }
+        }
+
+        $("#clearingCommentsTable tbody tr").not(":first").each(function(index) {
+            let innerHtml = unEscapeHtmlTextFormatting($(this).find('td .comment-text').html());
+            $(this).find('.comment-text').html(innerHtml);
+        });
+
+        let anchor = $("a.breadcrumb-link"),
+            href = $(anchor).attr("href"),
+            state = "${clearingRequest.clearingState}";
+        if (state === "CLOSED" || state === "REJECTED") {
+            $(anchor).attr("href", href+"#/tab-ClosedCR");
+        } else {
+            $(anchor).attr("href", href+"#/tab-OpenCR");
+        }
     });
 
     /* Add event listener for saving the comment */
@@ -373,9 +442,9 @@ require(['jquery', 'modules/dialog', 'modules/validation', 'modules/button', 'br
                                     +'<div class="m-auto row">'
                                     +'<div class="col-0 user-icon user-icon-info text-uppercase"><span>'+iconText+'</span></div>'
                                     +'<div class="col-11">'
-                                    +'<div class="comment-text"><footer class="blockquote-footer">'
+                                    +'<div class="comment-text"></div><footer class="blockquote-footer">'
                                     +' <liferay-ui:message key="by" /> <cite><b>' + by + '</b></cite>'
-                                    +' <liferay-ui:message key="on" /> <cite><b>' + on + '</b></cite></footer></div>'
+                                    +' <liferay-ui:message key="on" /> <cite><b>' + on + '</b></cite></footer>'
                                     +'</div></div>'
                                 +'</td></tr>');
                     $('#clearingCommentsTable tbody tr:eq(1) .comment-text').prepend(document.createTextNode(comment));

@@ -22,6 +22,7 @@ import org.eclipse.sw360.datahandler.couchdb.AttachmentConnector;
 import org.eclipse.sw360.datahandler.couchdb.AttachmentStreamConnector;
 import org.eclipse.sw360.datahandler.couchdb.DatabaseConnector;
 import org.eclipse.sw360.datahandler.entitlement.ComponentModerator;
+import org.eclipse.sw360.datahandler.entitlement.ProjectModerator;
 import org.eclipse.sw360.datahandler.entitlement.ReleaseModerator;
 import org.eclipse.sw360.datahandler.permissions.DocumentPermissions;
 import org.eclipse.sw360.datahandler.permissions.PermissionUtils;
@@ -110,6 +111,8 @@ public class ComponentDatabaseHandler extends AttachmentAwareDatabaseHandler {
      */
     private final ComponentModerator moderator;
     private final ReleaseModerator releaseModerator;
+    private final ProjectModerator projectModerator;
+
     public static final List<EccInformation._Fields> ECC_FIELDS = Arrays.asList(EccInformation._Fields.ECC_STATUS, EccInformation._Fields.AL, EccInformation._Fields.ECCN, EccInformation._Fields.MATERIAL_INDEX_NUMBER, EccInformation._Fields.ECC_COMMENT);
 
     private final MailUtil mailUtil = new MailUtil();
@@ -132,7 +135,7 @@ public class ComponentDatabaseHandler extends AttachmentAwareDatabaseHandler {
                     ClearingInformation._Fields.REQUEST_ID, ClearingInformation._Fields.ADDITIONAL_REQUEST_INFO,
                     ClearingInformation._Fields.EXTERNAL_SUPPLIER_ID, ClearingInformation._Fields.EVALUATED,
                     ClearingInformation._Fields.PROC_START);
-    public ComponentDatabaseHandler(Supplier<HttpClient> httpClient, String dbName, String attachmentDbName, ComponentModerator moderator, ReleaseModerator releaseModerator) throws MalformedURLException {
+    public ComponentDatabaseHandler(Supplier<HttpClient> httpClient, String dbName, String attachmentDbName, ComponentModerator moderator, ReleaseModerator releaseModerator, ProjectModerator projectModerator) throws MalformedURLException {
         super(httpClient, dbName, attachmentDbName);
         DatabaseConnector db = new DatabaseConnector(httpClient, dbName);
 
@@ -146,6 +149,7 @@ public class ComponentDatabaseHandler extends AttachmentAwareDatabaseHandler {
         // Create the moderator
         this.moderator = moderator;
         this.releaseModerator = releaseModerator;
+        this.projectModerator = projectModerator;
 
         // Create the attachment connector
         attachmentConnector = new AttachmentConnector(httpClient, attachmentDbName, durationOf(30, TimeUnit.SECONDS));
@@ -153,11 +157,11 @@ public class ComponentDatabaseHandler extends AttachmentAwareDatabaseHandler {
 
 
     public ComponentDatabaseHandler(Supplier<HttpClient> httpClient, String dbName, String attachmentDbName) throws MalformedURLException {
-        this(httpClient, dbName, attachmentDbName, new ComponentModerator(), new ReleaseModerator());
+        this(httpClient, dbName, attachmentDbName, new ComponentModerator(), new ReleaseModerator(), new ProjectModerator());
     }
 
     public ComponentDatabaseHandler(Supplier<HttpClient> httpClient, String dbName, String attachmentDbName, ThriftClients thriftClients) throws MalformedURLException {
-        this(httpClient, dbName, attachmentDbName, new ComponentModerator(thriftClients), new ReleaseModerator(thriftClients));
+        this(httpClient, dbName, attachmentDbName, new ComponentModerator(thriftClients), new ReleaseModerator(thriftClients), new ProjectModerator(thriftClients));
     }
 
     private void autosetReleaseClearingState(Release releaseAfter, Release releaseBefore) {
@@ -918,6 +922,9 @@ public class ComponentDatabaseHandler extends AttachmentAwareDatabaseHandler {
                         attachmentConnector, referenceDocLogList, null, null);
                 DatabaseHandlerUtil.addChangeLogs(updatedComponent, oldComponent, user.getEmail(), Operation.UPDATE,
                         attachmentConnector, Lists.newArrayList(), release.getId(), Operation.RELEASE_UPDATE);
+                Runnable clearingRequestRunnable = addCrCommentForAttachmentUpdates(actual, CommonUtils.nullToEmptySet(release.getAttachments()), user);
+                Thread crUpdateThread = new Thread(clearingRequestRunnable);
+                crUpdateThread.start();
             } else {
                 if (hasChangesInEccFields) {
                     return releaseModerator.updateReleaseEccInfo(release, user);
@@ -928,6 +935,49 @@ public class ComponentDatabaseHandler extends AttachmentAwareDatabaseHandler {
 
             return RequestStatus.SUCCESS;
         }
+    }
+
+    private Runnable addCrCommentForAttachmentUpdates(Release release, Set<Attachment> updatedAttachments, User user) {
+        return () -> {
+            Set<Attachment> originalAttachments = CommonUtils.nullToEmptySet(release.getAttachments());
+            // collect the attachment Ids
+            Set<String> originalAttachmentId = originalAttachments.stream().map(Attachment::getAttachmentContentId).collect(Collectors.toSet());
+            Set<String> updatedAttachmentId = updatedAttachments.stream().map(Attachment::getAttachmentContentId).collect(Collectors.toSet());
+
+            // check if attachments are updated
+            if (!originalAttachmentId.equals(updatedAttachmentId)) {
+                // fetch all the projects associated with this release and collect the Clearing request Ids
+                final Set<Project> usingProjects = projectRepository.searchByReleaseId(release.getId());
+                final Set<String> crIds = CommonUtils.nullToEmptySet(usingProjects).stream()
+                        .filter(proj -> CommonUtils.isNotNullEmptyOrWhitespace(proj.getClearingRequestId()))
+                        .map(Project::getClearingRequestId).collect(Collectors.toSet());
+                if (crIds.size() > 0) {
+                    Set<String> added = Sets.difference(updatedAttachmentId, originalAttachmentId);
+                    Set<String> removed = Sets.difference(originalAttachmentId, updatedAttachmentId);
+                    StringBuilder commentText = new StringBuilder("Attachment(s) updated for the release: <b>")
+                            .append(SW360Utils.printFullname(release)).append("</b> (").append(release.getId()).append(")\n");
+                    if (CommonUtils.isNotEmpty(added)) {
+                        Set<String> attachmentNames = extractAttachmentNameWithType(updatedAttachments, added);
+                        commentText.append("Added Attachments: ").append(SW360Utils.spaceJoiner.join(attachmentNames));
+                    }
+                    if (CommonUtils.isNotEmpty(removed)) {
+                        Set<String> attachmentNames = extractAttachmentNameWithType(originalAttachments, removed);
+                        commentText.append("Removed Attachments: ").append(SW360Utils.spaceJoiner.join(attachmentNames));
+                    }
+                    for (String cdId : crIds) {
+                        Comment comment = new Comment().setText(commentText.toString()).setCommentedBy(user.getEmail()).setAutoGenerated(true);
+                        projectModerator.addCommentToClearingRequest(cdId, comment, user);
+                    }
+                }
+            }
+        };
+    }
+
+    private Set<String> extractAttachmentNameWithType(Set<Attachment> attachments, Collection<String> filterCriteria) {
+        return attachments.stream().filter(att -> filterCriteria.contains(att.getAttachmentContentId()))
+                .map(att -> new StringBuilder(BackendUtils.LIST_ITEM).append(att.getFilename()).append(DatabaseHandlerUtil.SEPARATOR)
+                        .append(att.getAttachmentType()).append(BackendUtils.LIST_ITEM_CLOSE).toString())
+                .collect(Collectors.toSet());
     }
 
     private void setMainlineState(Release updated, User user, Release current) {

@@ -65,7 +65,8 @@ enum ClearingRequestState {
     REJECTED = 2,
     IN_QUEUE = 3,
     IN_PROGRESS = 4,
-    CLOSED = 5
+    CLOSED = 5,
+    ON_HOLD = 6
 }
 
 enum Visibility {

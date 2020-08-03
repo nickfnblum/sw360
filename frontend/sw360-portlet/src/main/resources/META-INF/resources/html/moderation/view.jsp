@@ -290,7 +290,7 @@ AUI().use('liferay-portlet-url', function () {
                     {title: "<liferay-ui:message key="request.id" />", render: {display: renderClearingRequestUrl}, className: 'text-nowrap', width: "5%" },
                     {title: "<liferay-ui:message key="business.area.line" />", className: 'text-nowrap', width: "10%" },
                     {title: "<liferay-ui:message key="project" />", width: "15%" },
-                    {title: "<liferay-ui:message key="components.to.be.cleared" />", width: "8%" },
+                    {title: "<liferay-ui:message key="number.of.components.to.be.cleared" />", width: "8%" },
                     {title: "<liferay-ui:message key="status" />", width: "10%" },
                     {title: "<liferay-ui:message key="requesting.user" />", className: 'text-nowrap', width: "10%" },
                     {title: "<liferay-ui:message key="created.on" />", className: 'text-nowrap', width: "7%" },
