@@ -24,6 +24,7 @@ import org.eclipse.sw360.datahandler.thrift.fossology.FossologyService;
 import org.eclipse.sw360.datahandler.thrift.licenseinfo.LicenseInfoService;
 import org.eclipse.sw360.datahandler.thrift.licenses.LicenseService;
 import org.eclipse.sw360.datahandler.thrift.moderation.ModerationService;
+import org.eclipse.sw360.datahandler.thrift.packages.PackageService;
 import org.eclipse.sw360.datahandler.thrift.projects.ProjectService;
 import org.eclipse.sw360.datahandler.thrift.projectimport.ProjectImportService;
 import org.eclipse.sw360.datahandler.thrift.schedule.ScheduleService;
@@ -77,6 +78,7 @@ public class ThriftClients {
     private static final String SCHEDULE_SERVICE_URL = "/schedule/thrift";
     private static final String WSIMPORT_SERVICE_URL = "/wsimport/thrift";
     private static final String CHANGELOGS_SERVICE_URL = "/changelogs/thrift";
+    private static final String PACKAGES_SERVICE_URL = "/packages/thrift";
 
     // A service which has to be scheduled by the scheduler should be registered here!
     // names of services that can be scheduled by the schedule service, i.e. that have an "update" method
@@ -189,5 +191,9 @@ public class ThriftClients {
 
     public ChangeLogsService.Iface makeChangeLogsClient() {
         return new ChangeLogsService.Client(makeProtocol(BACKEND_URL, CHANGELOGS_SERVICE_URL));
+    }
+
+    public PackageService.Iface makePackagesClient() {
+        return new PackageService.Client(makeProtocol(BACKEND_URL, PACKAGES_SERVICE_URL));
     }
 }
