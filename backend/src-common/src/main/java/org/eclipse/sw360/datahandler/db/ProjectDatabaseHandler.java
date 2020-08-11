@@ -333,6 +333,7 @@ public class ProjectDatabaseHandler extends AttachmentAwareDatabaseHandler {
         project.createdBy = user.getEmail();
         project.createdOn = getCreatedOn();
         project.businessUnit = getBUFromOrganisation(user.getDepartment());
+        setRequestedDateAndTrimComment(project, null, user);
 
         // Add project to database and return ID
         repository.add(project);
@@ -377,6 +378,7 @@ public class ProjectDatabaseHandler extends AttachmentAwareDatabaseHandler {
             return RequestStatus.INVALID_INPUT;
         } else if (isWriteActionAllowedOnProject(actual, user)) {
             copyImmutableFields(project,actual);
+            setRequestedDateAndTrimComment(project, actual, user);
             project.setAttachments( getAllAttachmentsToKeep(toSource(actual), actual.getAttachments(), project.getAttachments()) );
             setReleaseRelations(project, user, actual);
             updateProjectDependentLinkedFields(project, actual);
@@ -401,6 +403,51 @@ public class ProjectDatabaseHandler extends AttachmentAwareDatabaseHandler {
             return RequestStatus.SUCCESS;
         } else {
             return moderator.updateProject(project, user);
+        }
+    }
+
+    private void setRequestedDateAndTrimComment(Project project, Project actual, User user) {
+        Set<String> actualReleaseIds = null;
+        if (Objects.nonNull(actual)&&Objects.nonNull(actual.getReleaseIdToUsage())) {
+            actualReleaseIds = CommonUtils.nullToEmptySet(actual.getReleaseIdToUsage().keySet());
+        }
+        final Set<String> actualReleaseIdsFinal = CommonUtils.nullToEmptySet(actualReleaseIds);
+        Set<String> updatedReleaseIds = null;
+        if (Objects.nonNull(project.getReleaseIdToUsage())) {
+            updatedReleaseIds = CommonUtils.nullToEmptySet(project.getReleaseIdToUsage().keySet());
+        } else {
+            updatedReleaseIds = new HashSet<>();
+        }
+
+        updatedReleaseIds.stream().filter(updatedReleaseId -> !actualReleaseIdsFinal.contains(updatedReleaseId))
+                .forEach(updatedReleaseId -> {
+                    ProjectReleaseRelationship projectReleaseRelationship = project.getReleaseIdToUsage()
+                            .get(updatedReleaseId);
+                    if (Objects.nonNull(projectReleaseRelationship))
+                        projectReleaseRelationship.setCreatedOn(SW360Utils.getCreatedOn());
+                    projectReleaseRelationship.setCreatedBy(user.getEmail());
+                });
+
+        updatedReleaseIds.stream().filter(commonReleaseId -> actualReleaseIdsFinal.contains(commonReleaseId))
+                .forEach(commonReleaseId -> {
+                    ProjectReleaseRelationship projectReleaseRelationship = project.getReleaseIdToUsage()
+                            .get(commonReleaseId);
+                    ProjectReleaseRelationship actualProjectReleaseRelationship = actual.getReleaseIdToUsage()
+                            .get(commonReleaseId);
+                    if (Objects.nonNull(projectReleaseRelationship)
+                            && Objects.nonNull(actualProjectReleaseRelationship))
+                        projectReleaseRelationship
+                                .setCreatedOn(actualProjectReleaseRelationship.getCreatedOn());
+                    projectReleaseRelationship
+                    .setCreatedBy(actualProjectReleaseRelationship.getCreatedBy());
+                });
+
+        if (Objects.nonNull(project.getReleaseIdToUsage())) {
+            project.getReleaseIdToUsage().entrySet().stream().forEach(entry -> {
+                if (Objects.nonNull(entry.getValue()) && Objects.nonNull(entry.getValue().getComment())) {
+                    entry.getValue().setComment(entry.getValue().getComment().trim());
+                }
+            });
         }
     }
 
@@ -1347,13 +1394,14 @@ public class ProjectDatabaseHandler extends AttachmentAwareDatabaseHandler {
         linkedReleases.entrySet().stream().forEach(rl -> wrapTException(() -> {
             String relation = ThriftEnumUtils.enumToString(rl.getValue().getReleaseRelation());
             String projectMailLineState = ThriftEnumUtils.enumToString(rl.getValue().getMainlineState());
+            String comment = rl.getValue().getComment();
             String releaseId = rl.getKey();
             if (releaseOrigin.containsKey(releaseId))
                 return;
             Release rel = componentDatabaseHandler.getRelease(releaseId, user);
             Map<String, ReleaseRelationship> releaseIdToRelationship = rel.getReleaseIdToRelationship();
             releaseOrigin.put(releaseId, SW360Utils.printName(rel));
-            Map<String, String> row = createReleaseCSRow(relation, projectMailLineState, rel, clearingStatusList, user);
+            Map<String, String> row = createReleaseCSRow(relation, projectMailLineState, rel, clearingStatusList, user, comment);
             if (releaseIdToRelationship != null && !releaseIdToRelationship.isEmpty()) {
                 flattenlinkedReleaseOfRelease(releaseIdToRelationship, projectOrigin, releaseOrigin, clearingStatusList,
                         user);
@@ -1370,13 +1418,14 @@ public class ProjectDatabaseHandler extends AttachmentAwareDatabaseHandler {
         releaseIdToRelationship.entrySet().stream().forEach(rl -> wrapTException(() -> {
             String relation = ThriftEnumUtils.enumToString(rl.getValue());
             String projectMailLineState = "";
+            String comment = "";
             String releaseId = rl.getKey();
             if (releaseOrigin.containsKey(releaseId))
                 return;
             Release rel = componentDatabaseHandler.getRelease(releaseId, user);
             Map<String, ReleaseRelationship> subReleaseIdToRelationship = rel.getReleaseIdToRelationship();
             releaseOrigin.put(releaseId, SW360Utils.printName(rel));
-            Map<String, String> row = createReleaseCSRow(relation, projectMailLineState, rel, clearingStatusList, user);
+            Map<String, String> row = createReleaseCSRow(relation, projectMailLineState, rel, clearingStatusList, user, comment);
             if (subReleaseIdToRelationship != null && !subReleaseIdToRelationship.isEmpty()) {
                 flattenlinkedReleaseOfRelease(subReleaseIdToRelationship, projectOrigin, releaseOrigin,
                         clearingStatusList, user);
@@ -1403,7 +1452,7 @@ public class ProjectDatabaseHandler extends AttachmentAwareDatabaseHandler {
     }
 
     private Map<String, String> createReleaseCSRow(String relation, String projectMailLineState, Release rl,
-            List<Map<String, String>> clearingStatusList, User user) throws SW360Exception {
+            List<Map<String, String>> clearingStatusList, User user, String comment) throws SW360Exception {
         Map<String, String> row = new HashMap<>();
         Component component = componentDatabaseHandler.getComponent(rl.getComponentId(), user);
         String releaseId = rl.getId();
@@ -1417,6 +1466,7 @@ public class ProjectDatabaseHandler extends AttachmentAwareDatabaseHandler {
         row.put("releaseMainlineState", ThriftEnumUtils.enumToString(rl.getMainlineState()));
         row.put("clearingState", ThriftEnumUtils.enumToString(rl.getClearingState()));
         row.put("projectMainlineState", projectMailLineState);
+        row.put("comment", CommonUtils.nullToEmptyString(comment));
         clearingStatusList.add(row);
         return row;
     }
