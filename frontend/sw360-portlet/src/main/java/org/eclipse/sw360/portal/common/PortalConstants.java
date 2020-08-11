@@ -201,6 +201,7 @@ public class PortalConstants {
     public static final String ADDED_ATTACHMENTS = "added_attachments";
     public static final String REMOVED_ATTACHMENTS = "removed_attachments";
     public static final String ATTACHMENT_ID = "attachmentId";
+    public static final String ATTACHMENT_IDS = "attachmentIds[]";
     public static final String ATTACHMENT_CONTENT_ID = "attachmentContentId";
     public static final String ALL_ATTACHMENTS = "all_attachments";
     public static final String CONTEXT_TYPE = "context_type";
@@ -335,6 +336,7 @@ public class PortalConstants {
     public static final String LICENSE_INFO_OUTPUT_FORMATS = "licenseInfoOutputFormats";
     public static final String LICENSE_INFO_SELECTED_OUTPUT_FORMAT = "licenseInfoSelectedOutputFormat";
     public static final String LICENSE_INFO_RELEASE_TO_ATTACHMENT = "licenseInfoAttachmentSelected";
+    public static final String LICENSE_INFO_EMPTY_FILE = "isEmptyFile";
     public static final String SW360_USER = "sw360User";
 
     //! Serve resource generic keywords
@@ -450,6 +452,7 @@ public class PortalConstants {
     public static final String REMOVE_ORPHAN_OBLIGATION = "RemoveOrphanObligation";
     public static final String LIST_CLEARING_STATUS = "listClearingStatus";
     public static final String CLEARING_STATUS_ON_LOAD = "clearingStatusOnLoad";
+    public static final String PROJECT_CHECK_FOR_ATTACHMENTS = "verifyAttachmentExistance";
 
     //component actions
     public static final String ADD_VENDOR = "add_vendor";

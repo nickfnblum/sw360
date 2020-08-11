@@ -10,6 +10,8 @@
 <%@ page import="java.util.Map"%>
 <%@ page import="org.eclipse.sw360.portal.common.PortalConstants" %>
 <%@ page import="org.eclipse.sw360.datahandler.thrift.licenseinfo.OutputFormatVariant" %>
+<%@ page import="com.liferay.portal.kernel.portlet.PortletURLFactoryUtil" %>
+<%@ page import="javax.portlet.PortletRequest" %>
 
 <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
 <%@ taglib prefix="fn" uri="http://java.sun.com/jsp/jstl/functions" %>
@@ -26,6 +28,12 @@
 
 <portlet:resourceURL var="downloadLicenseInfoURL">
     <portlet:param name="<%=PortalConstants.ACTION%>" value='<%=PortalConstants.DOWNLOAD_LICENSE_INFO%>'/>
+    <portlet:param name="<%=PortalConstants.PROJECT_ID%>" value="${requestScope.project.id}"/>
+    <portlet:param name="<%=PortalConstants.LICENSE_INFO_EMPTY_FILE%>" value="No"/>
+</portlet:resourceURL>
+
+<portlet:resourceURL var="checkIfAttachmentExists">
+    <portlet:param name="<%=PortalConstants.ACTION%>" value='<%=PortalConstants.PROJECT_CHECK_FOR_ATTACHMENTS%>'/>
     <portlet:param name="<%=PortalConstants.PROJECT_ID%>" value="${requestScope.project.id}"/>
 </portlet:resourceURL>
 
@@ -138,74 +146,144 @@
 <script>
 require(['jquery', 'modules/dialog'], function($, dialog) {
     let onlyClearingReport = '${onlyClearingReport}';
+    let downloadEmptyTemplate = '${showSessionError}';
+    let outputFormat = '${licInfoSelectedOutputFormat}';
     $('#selectVariantAndDownload').on('click', selectVariantAndSubmit);
     function selectVariantAndSubmit(){
         dialog.open('#downloadLicenseInfoDialog','',function(submit, callback) {
             callback(true);
         });
     }
-    if(onlyClearingReport == 'true') {
-        $('#downloadFileModal').on('click', downloadClearingReportOnly);
-    } else {
-        $('#downloadFileModal').on('click', downloadFile);
+
+    if(downloadEmptyTemplate) {
+        if(onlyClearingReport == 'true') {
+            downloadClearingReportOnly(true);
+        } else {
+            downloadFile(true, outputFormat);
+        }
     }
 
-    function downloadFile(){
+    $('#downloadFileModal').on('click', function() {
+        checkIfSelectedAttachmentsExist().done(function(data){
+            if(typeof data.attchmntsNotFound !== 'undefined' && data.attchmntsNotFound){
+                downloadLicenseInfo();
+            } else {
+                if(onlyClearingReport == 'true') {
+                    downloadClearingReportOnly(false);
+                } else {
+                    downloadFile(false);
+                }
+            }
+        });
+    });
+
+    function downloadFile(isEmptyFile, outputFormat){
         var licenseInfoSelectedOutputFormat = $('input[name="outputFormat"]:checked').val();
-        var externalIds = [];
-        var releaseRelations = [];
-        var selectedProjectRelations = [];
-        $.each($("input[name='externalIdsSelection']:checked"), function(){
-            externalIds.push($(this).val());
-        });
-        var extIdsHidden = externalIds.join(',');
+        if(isEmptyFile === "undefined" || !isEmptyFile){
+            var externalIds = [];
+            var releaseRelations = [];
+            var selectedProjectRelations = [];
+            $.each($("input[name='externalIdsSelection']:checked"), function(){
+                externalIds.push($(this).val());
+            });
+            var extIdsHidden = externalIds.join(',');
 
-        $.each($("input[name='releaseRelationSelection']:checked"), function(){
-            releaseRelations.push($(this).val());
-        });
-        var releaseRelationsHidden = releaseRelations.join();
+            $.each($("input[name='releaseRelationSelection']:checked"), function(){
+                releaseRelations.push($(this).val());
+            });
+            var releaseRelationsHidden = releaseRelations.join();
 
-        $.each($("input[name='projectRelationSelection']:checked"), function(){
-            selectedProjectRelations.push($(this).val());
-        });
-        var selectedProjectRelationsHidden = selectedProjectRelations.join();
+            $.each($("input[name='projectRelationSelection']:checked"), function(){
+                selectedProjectRelations.push($(this).val());
+            });
+            var selectedProjectRelationsHidden = selectedProjectRelations.join();
 
-        $('#downloadLicenseInfoForm').append('<input id="extIdHidden" type="hidden" name="<portlet:namespace/><%=PortalConstants.EXTERNAL_ID_SELECTED_KEYS%>"/>');
-        $('#downloadLicenseInfoForm').append('<input id="licensInfoFileFormat" type="hidden" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT%>"/>');
-        $('#downloadLicenseInfoForm').append('<input id="releaseRelationship" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELEASE_RELATIONS%>"/>');
-        $('#downloadLicenseInfoForm').append('<input id="selectedProjectRelations" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELATIONS%>"/>');
-        $('#downloadLicenseInfoForm').append('<input id="isSubProjPresent" type="hidden" name="<portlet:namespace/><%=PortalConstants.IS_LINKED_PROJECT_PRESENT%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="extIdHidden" type="hidden" name="<portlet:namespace/><%=PortalConstants.EXTERNAL_ID_SELECTED_KEYS%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="licensInfoFileFormat" type="hidden" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="releaseRelationship" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELEASE_RELATIONS%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="selectedProjectRelations" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELATIONS%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="isSubProjPresent" type="hidden" name="<portlet:namespace/><%=PortalConstants.IS_LINKED_PROJECT_PRESENT%>"/>');
 
+            $("#extIdHidden").val(extIdsHidden);
+            $("#licensInfoFileFormat").val(licenseInfoSelectedOutputFormat);
+            $("#releaseRelationship").val(releaseRelationsHidden);
+            $("#selectedProjectRelations").val(selectedProjectRelationsHidden);
+            $("#isSubProjPresent").val(${not empty linkedProjectRelation});
 
-        $("#extIdHidden").val(extIdsHidden);
-        $("#licensInfoFileFormat").val(licenseInfoSelectedOutputFormat);
-        $("#releaseRelationship").val(releaseRelationsHidden);
-        $("#selectedProjectRelations").val(selectedProjectRelationsHidden);
-        $("#isSubProjPresent").val(${not empty linkedProjectRelation});
-
-        $('#downloadLicenseInfoForm').submit();
+            $('#downloadLicenseInfoForm').submit();
+        } else {
+            $('#downloadLicenseInfoForm').append('<input id="licensInfoFileFormat" type="hidden" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="isEmptyFile" type="hidden" value="Yes" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_EMPTY_FILE%>" />');
+            if(outputFormat !== 'undefined' && outputFormat) {
+                $("#licensInfoFileFormat").val(outputFormat);
+            } else {
+                $("#licensInfoFileFormat").val(licenseInfoSelectedOutputFormat);
+            }
+            $('#downloadLicenseInfoForm').submit();
+        }
     }
 
-    function downloadClearingReportOnly() {
-        let releaseRelations = [];
-        let selectedProjectRelations = [];
-        $.each($("input[name='releaseRelationSelection']:checked"), function(){
-            releaseRelations.push($(this).val());
-        });
-        let releaseRelationsHidden = releaseRelations.join();
+    function downloadClearingReportOnly(isEmptyFile) {
+        if(isEmptyFile === "undefined" || !isEmptyFile) {
+            let releaseRelations = [];
+            let selectedProjectRelations = [];
+            $.each($("input[name='releaseRelationSelection']:checked"), function(){
+                releaseRelations.push($(this).val());
+            });
+            let releaseRelationsHidden = releaseRelations.join();
 
-        $.each($("input[name='projectRelationSelection']:checked"), function(){
-            selectedProjectRelations.push($(this).val());
+            $.each($("input[name='projectRelationSelection']:checked"), function(){
+                selectedProjectRelations.push($(this).val());
+            });
+            var selectedProjectRelationsHidden = selectedProjectRelations.join();
+            $('#downloadLicenseInfoForm').append('<input id="licensInfoFileFormat" type="hidden" value="DocxGenerator::REPORT" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT%>" />');
+            $('#downloadLicenseInfoForm').append('<input id="isSubProjPresent" type="hidden" name="<portlet:namespace/><%=PortalConstants.IS_LINKED_PROJECT_PRESENT%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="releaseRelationship" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELEASE_RELATIONS%>"/>');
+            $('#downloadLicenseInfoForm').append('<input id="selectedProjectRelations" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELATIONS%>"/>');
+            $("#isSubProjPresent").val(${not empty linkedProjectRelation});
+            $("#releaseRelationship").val(releaseRelationsHidden);
+            $("#selectedProjectRelations").val(selectedProjectRelationsHidden);
+            $('#downloadLicenseInfoForm').submit();
+        } else {
+            $('#downloadLicenseInfoForm').append('<input id="licensInfoFileFormat" type="hidden" value="DocxGenerator::REPORT" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT%>" />');
+            $('#downloadLicenseInfoForm').append('<input id="isEmptyFile" type="hidden" value="Yes" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_EMPTY_FILE%>" />');
+            $('#downloadLicenseInfoForm').submit();
+        }
+    }
+
+    function checkIfSelectedAttachmentsExist() {
+        var attachmentIds = [];
+
+        $.each($("input[name='<portlet:namespace/><%=PortalConstants.LICENSE_INFO_RELEASE_TO_ATTACHMENT%>']:checked"), function() {
+            let selectedAttachmentIdsWithPath = $(this).val();
+            let selectedAttachmentIdsWithPathArray = selectedAttachmentIdsWithPath.split(":");
+            let attchmntId = selectedAttachmentIdsWithPathArray[selectedAttachmentIdsWithPathArray.length - 1];
+
+            attachmentIds.push(attchmntId);
         });
-        var selectedProjectRelationsHidden = selectedProjectRelations.join();
-        $('#downloadLicenseInfoForm').append('<input id="licensInfoFileFormat" type="hidden" value="DocxGenerator::REPORT" name="<portlet:namespace/><%=PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT%>" />');
-        $('#downloadLicenseInfoForm').append('<input id="isSubProjPresent" type="hidden" name="<portlet:namespace/><%=PortalConstants.IS_LINKED_PROJECT_PRESENT%>"/>');
-        $('#downloadLicenseInfoForm').append('<input id="releaseRelationship" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELEASE_RELATIONS%>"/>');
-        $('#downloadLicenseInfoForm').append('<input id="selectedProjectRelations" type="hidden" name="<portlet:namespace/><%=PortalConstants.SELECTED_PROJECT_RELATIONS%>"/>');
-        $("#isSubProjPresent").val(${not empty linkedProjectRelation});
-        $("#releaseRelationship").val(releaseRelationsHidden);
-        $("#selectedProjectRelations").val(selectedProjectRelationsHidden);
-        $('#downloadLicenseInfoForm').submit();
+        return jQuery.ajax({
+            type: 'POST',
+            url: '<%=checkIfAttachmentExists%>',
+            async: false,
+            data: {
+                "<portlet:namespace/><%=PortalConstants.ATTACHMENT_IDS%>": attachmentIds
+            },
+            success: function (data) {
+                console.log(data)
+            }
+        });
+    }
+
+    function downloadLicenseInfo() {
+        var licenseInfoSelectedOutputFormat = $('input[name="outputFormat"]:checked').val();
+        var portletURL = Liferay.PortletURL.createURL('<%= PortletURLFactoryUtil.create(request, portletDisplay.getId(), themeDisplay.getPlid(), PortletRequest.RENDER_PHASE) %>');
+        portletURL.setParameter('<%=PortalConstants.PROJECT_ID%>', '${project.id}');
+        portletURL.setParameter('<%=PortalConstants.PAGENAME%>', '<%=PortalConstants.PAGENAME_LICENSE_INFO%>');
+        portletURL.setParameter('<%=PortalConstants.PROJECT_WITH_SUBPROJECT%>', '${projectOrWithSubProjects}');
+        portletURL.setParameter('showSessionError', 'yes');
+        portletURL.setParameter('<portlet:namespace/><%=PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT%>', licenseInfoSelectedOutputFormat);
+
+        window.location.href = portletURL.toString();
     }
 });
 </script>

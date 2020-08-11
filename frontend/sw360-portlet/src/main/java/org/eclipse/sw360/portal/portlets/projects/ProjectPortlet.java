@@ -194,6 +194,8 @@ public class ProjectPortlet extends FossologyAwarePortlet {
             exportReleasesSpreadsheet(request, response);
         } else if (PortalConstants.DOWNLOAD_LICENSE_INFO.equals(action)) {
             downloadLicenseInfo(request, response);
+        } else if (PortalConstants.PROJECT_CHECK_FOR_ATTACHMENTS.equals(action)) {
+            verifyIfAttachmentsExists(request, response);
         } else if (PortalConstants.DOWNLOAD_SOURCE_CODE_BUNDLE.equals(action)) {
             downloadSourceCodeBundle(request, response);
         } else if (PortalConstants.GET_CLEARING_STATE_SUMMARY.equals(action)) {
@@ -430,7 +432,29 @@ public class ProjectPortlet extends FossologyAwarePortlet {
 
     private void downloadLicenseInfo(ResourceRequest request, ResourceResponse response) throws IOException {
         final String projectId = request.getParameter(PROJECT_ID);
+        String isEmptyFile = request.getParameter(PortalConstants.LICENSE_INFO_EMPTY_FILE);
         String outputGenerator = request.getParameter(PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT);
+        User user = UserCacheHolder.getUserFromRequest(request);
+        ProjectService.Iface projClient = thriftClients.makeProjectClient();
+        Project project = null;
+        try {
+            project = projClient.getProjectById(projectId, user);
+        } catch (TException e) {
+            log.error("Error getting project with id " + projectId + " and generator ", e);
+            response.setProperty(ResourceResponse.HTTP_STATUS_CODE,
+                    Integer.toString(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+            return;
+        }
+        if (null != isEmptyFile && isEmptyFile.equals("Yes")) {
+            try {
+                downloadEmptyLicenseInfo(request, response, project, user, outputGenerator);
+                return;
+            } catch (IOException | TException e) {
+                log.error("Error getting empty licenseInfo file for project with id " + projectId + " and generator " + outputGenerator, e);
+                response.setProperty(ResourceResponse.HTTP_STATUS_CODE, Integer.toString(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+            }
+        }
+
         String extIdsFromRequest = request.getParameter(PortalConstants.EXTERNAL_ID_SELECTED_KEYS);
         boolean isLinkedProjectPresent = Boolean.parseBoolean(request.getParameter(PortalConstants.IS_LINKED_PROJECT_PRESENT));
         List<String> selectedReleaseRelationships =  getSelectedReleaseRationships(request);
@@ -449,18 +473,6 @@ public class ProjectPortlet extends FossologyAwarePortlet {
         Set<ProjectRelationship> listOfSelectedProjectRelationships = selectedProjectRelationStrAsList.stream()
                 .map(rel -> ThriftEnumUtils.stringToEnum(rel, ProjectRelationship.class)).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-
-        User user = UserCacheHolder.getUserFromRequest(request);
-        ProjectService.Iface projClient = thriftClients.makeProjectClient();
-        Project project = null;
-        try {
-            project = projClient.getProjectById(projectId, user);
-        } catch (TException e) {
-            log.error("Error getting project with id " + projectId + " and generator ", e);
-            response.setProperty(ResourceResponse.HTTP_STATUS_CODE,
-                    Integer.toString(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
-            return;
-        }
 
         List<ProjectLink> filteredMappedProjectLinks = createLinkedProjects(project,
                 filterAndSortAttachments(SW360Constants.LICENSE_INFO_ATTACHMENT_TYPES), true, user,
@@ -527,6 +539,33 @@ public class ProjectPortlet extends FossologyAwarePortlet {
             log.error("Error getting LicenseInfo file for project with id " + projectId + " and generator " + outputGenerator, e);
             response.setProperty(ResourceResponse.HTTP_STATUS_CODE, Integer.toString(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
         }
+    }
+
+    private void downloadEmptyLicenseInfo(ResourceRequest request, ResourceResponse response, Project project, User user, String outputGenerator) throws TException, IOException {
+        final LicenseInfoService.Iface licenseInfoClient = thriftClients.makeLicenseInfoClient();
+        LicenseInfoFile licenseInfoFile = licenseInfoClient.getLicenseInfoFile(project, user, outputGenerator,
+                Collections.emptyMap(), Collections.emptyMap(), "");
+        sendLicenseInfoResponse(request, response, project, licenseInfoFile);
+    }
+
+    private void verifyIfAttachmentsExists(ResourceRequest request, ResourceResponse response) throws IOException {
+        String attachmentIds[] = request.getParameterValues(PortalConstants.ATTACHMENT_IDS);
+        AttachmentService.Iface attachmentClient = thriftClients.makeAttachmentClient();
+        JSONObject jsonObject = JSONFactoryUtil.createJSONObject();
+        try {
+            for (String attchmntId : attachmentIds) {
+                attachmentClient.getAttachmentContent(attchmntId);
+            }
+        } catch (SW360Exception sw360Exp) {
+            if (sw360Exp.getErrorCode() == 404) {
+                jsonObject.put("attchmntsNotFound", true);
+                log.error("Error: attachment not found", sw360Exp);
+            }
+        } catch (TException exception) {
+            log.error("Error getting attachment usages", exception);
+        }
+        writeJSON(request, response, jsonObject);
+
     }
 
     private void saveSelectedReleaseAndProjectRelations(String projectId,
@@ -1180,6 +1219,8 @@ public class ProjectPortlet extends FossologyAwarePortlet {
     private void prepareLicenseInfo(RenderRequest request, RenderResponse response) throws IOException, PortletException {
         User user = UserCacheHolder.getUserFromRequest(request);
         String id = request.getParameter(PROJECT_ID);
+        String showAttchmntSessionError = request.getParameter("showSessionError");
+        String outputGenerator = request.getParameter(PortalConstants.LICENSE_INFO_SELECTED_OUTPUT_FORMAT);
         boolean projectWithSubProjects = Boolean
                 .parseBoolean(request.getParameter(PortalConstants.PROJECT_WITH_SUBPROJECT));
 
@@ -1187,6 +1228,7 @@ public class ProjectPortlet extends FossologyAwarePortlet {
         request.setAttribute(DOCUMENT_TYPE, SW360Constants.TYPE_PROJECT);
         request.setAttribute(PROJECT_LINK_TABLE_MODE, PROJECT_LINK_TABLE_MODE_LICENSE_INFO);
         request.setAttribute("onlyClearingReport", request.getParameter(PortalConstants.PREPARE_LICENSEINFO_OBL_TAB));
+        request.setAttribute("projectOrWithSubProjects", projectWithSubProjects);
 
         if (id != null) {
             try {
@@ -1223,6 +1265,13 @@ public class ProjectPortlet extends FossologyAwarePortlet {
 
                 storePathsMapInRequest(request, mappedProjectLinks);
                 storeAttachmentUsageCountInRequest(request, mappedProjectLinks, UsageData.licenseInfo(new LicenseInfoUsage(Sets.newHashSet())));
+                if (showAttchmntSessionError != null && "yes".equals(showAttchmntSessionError)) {
+                    request.setAttribute("showSessionError", true);
+                    setSW360SessionError(request, ErrorMessages.ERROR_GETTING_ATTACHMNET_FROM_DB);
+                }
+                if(null != outputGenerator) {
+                    request.setAttribute("licInfoSelectedOutputFormat", outputGenerator);
+                }
             } catch (TException e) {
                 log.error("Error fetching project from backend!", e);
                 setSW360SessionError(request, ErrorMessages.ERROR_GETTING_PROJECT);
